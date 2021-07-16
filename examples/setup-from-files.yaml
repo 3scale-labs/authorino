@@ -1,0 +1,81 @@
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: api-protections
+  # make sure to replace here and in the wristband endpoints
+  namespace: ${AUTHORINO_NAMESPACE}
+data:
+  talker-api-protection.json: |
+    {
+      "hosts": [
+        "talker-api"
+      ],
+      "identity": [
+        {
+            "name": "friends",
+            "apiKey": {
+              "labelSelectors": {
+                  "authorino.3scale.net/managed-by": "authorino",
+                  "group": "friends"
+              }
+            },
+            "credentials": {
+              "in": "authorization_header",
+              "keySelector": "APIKEY"
+            }
+        },
+        {
+          "name": "wristband",
+          "oidc": {
+            "endpoint": "http://authorino-wristband:8003/${AUTHORINO_NAMESPACE}/talker-api-protection"
+          },
+            "credentials": {
+              "in": "authorization_header",
+              "keySelector": "Wristband"
+            }
+        }
+      ],
+      "authorization": [
+        {
+          "name": "5min-grace-period",
+          "opa": {
+            "inlineRego": "allow { id = object.get(input.auth.identity, \"metadata\", input.auth.identity); born = time.parse_rfc3339_ns(object.get(id, \"creationTimestamp\", object.get(id, \"born\", \"\"))); age := time.now_ns() - born; age_in_minutes := (age/1000000000/60); age_in_minutes >= 5 }"
+          }
+        }
+      ],
+      "wristband": {
+        "issuer": "http://authorino-wristband:8003/${AUTHORINO_NAMESPACE}/talker-api-protection",
+        "customClaims": [
+          {
+            "name": "aud",
+            "value": "internal"
+          },
+          {
+            "name": "born",
+            "valueFrom": {
+              "authJSON": "auth.identity.metadata.creationTimestamp"
+            }
+          }
+        ],
+        "tokenDuration": 60,
+        "signingKeyRefs": [
+          {
+            "name": "wristband-signing-key",
+            "algorithm": "ES256"
+          }
+        ]
+      }
+    }
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: wristband-signing-key
+stringData:
+  key.pem: |
+    -----BEGIN EC PRIVATE KEY-----
+    MHcCAQEEIDHvuf81gVlWGo0hmXGTAnA/HVxGuH8vOc7/8jewcVvqoAoGCCqGSM49
+    AwEHoUQDQgAETJf5NLVKplSYp95TOfhVPqvxvEibRyjrUZwwtpDuQZxJKDysoGwn
+    cnUvHIu23SgW+Ee9lxSmZGhO4eTdQeKxMA==
+    -----END EC PRIVATE KEY-----
+type: Opaque

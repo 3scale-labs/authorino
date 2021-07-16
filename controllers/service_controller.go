@@ -44,9 +44,11 @@ import (
 // ServiceReconciler reconciles a Service object
 type ServiceReconciler struct {
 	client.Client
-	Log    logr.Logger
-	Scheme *runtime.Scheme
-	Cache  cache.Cache
+	ServiceReader client.Reader
+	ServiceWriter client.Writer
+	Log           logr.Logger
+	Scheme        *runtime.Scheme
+	Cache         cache.Cache
 }
 
 // +kubebuilder:rbac:groups=config.authorino.3scale.net,resources=services,verbs=get;list;watch;create;update;patch;delete
@@ -58,7 +60,7 @@ func (r *ServiceReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	log := r.Log.WithValues("service", req.NamespacedName)
 
 	service := configv1beta1.Service{}
-	err := r.Get(ctx, req.NamespacedName, &service)
+	err := r.ServiceReader.Get(ctx, req.NamespacedName, &service)
 	if err != nil && errors.IsNotFound(err) {
 
 		// As we can't get the object, that means it was deleted.
@@ -75,22 +77,21 @@ func (r *ServiceReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	}
 
 	// The object exists so we need to either create it or update
-	serviceConfigByHost, err := r.translateService(ctx, &service)
-	if err != nil {
+	if serviceConfigByHost, err := r.translateService(ctx, &service); err != nil {
 		return ctrl.Result{}, err
-	}
-
-	for serviceHost, apiConfig := range serviceConfigByHost {
-		// Check for host collision with another namespace
-		if cachedKey, found := r.Cache.FindId(serviceHost); found {
-			if cachedKeyParts := strings.Split(cachedKey, string(types.Separator)); cachedKeyParts[0] != req.Namespace {
-				log.Info("host already taken in another namespace", "host", serviceHost)
-				return ctrl.Result{}, nil
+	} else {
+		for serviceHost, apiConfig := range serviceConfigByHost {
+			// Check for host collision with another namespace
+			if cachedKey, found := r.Cache.FindId(serviceHost); found {
+				if cachedKeyParts := strings.Split(cachedKey, string(types.Separator)); cachedKeyParts[0] != req.Namespace {
+					log.Info("host already taken in another namespace", "host", serviceHost)
+					return ctrl.Result{}, nil
+				}
 			}
-		}
 
-		if err := r.Cache.Set(req.String(), serviceHost, apiConfig, true); err != nil {
-			return ctrl.Result{}, err
+			if err := r.Cache.Set(req.String(), serviceHost, apiConfig, true); err != nil {
+				return ctrl.Result{}, err
+			}
 		}
 	}
 

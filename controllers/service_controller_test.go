@@ -149,10 +149,12 @@ func setupEnvironment(t *testing.T, c cache.Cache) ServiceReconciler {
 	client := fake.NewFakeClientWithScheme(scheme, &service, &secret)
 
 	return ServiceReconciler{
-		Client: client,
-		Log:    ctrl.Log.WithName("reconcilerTest"),
-		Scheme: nil,
-		Cache:  c,
+		Client:        client,
+		Log:           ctrl.Log.WithName("reconcilerTest"),
+		Scheme:        nil,
+		Cache:         c,
+		ServiceReader: client,
+		ServiceWriter: client,
 	}
 }
 

@@ -51,6 +51,7 @@ var (
 	setupLog = ctrl.Log.WithName("setup")
 
 	watchNamespace              = common.FetchEnv("WATCH_NAMESPACE", "")
+	setupFromFilesDir           = common.FetchEnv("SETUP_FROM_FILES_DIR", "")
 	authorinoWatchedSecretLabel = common.FetchEnv("AUTHORINO_SECRET_LABEL_KEY", defaultAuthorinoWatchedSecretLabel)
 	extAuthGRPCPort             = common.FetchEnv("EXT_AUTH_GRPC_PORT", "50051")
 	oidcHTTPPort                = common.FetchEnv("OIDC_HTTP_PORT", "8083")
@@ -60,7 +61,9 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
-	utilruntime.Must(configv1beta1.AddToScheme(scheme))
+	if setupFromFilesDir == "" {
+		utilruntime.Must(configv1beta1.AddToScheme(scheme))
+	}
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -93,28 +96,48 @@ func main() {
 		os.Exit(1)
 	}
 
+	k8sClient := mgr.GetClient()
 	cache := cache.NewCache()
 
-	// sets up the service reconciler
 	serviceReconciler := &controllers.ServiceReconciler{
-		Client: mgr.GetClient(),
-		Cache:  cache,
-		Log:    ctrl.Log.WithName("authorino").WithName("controller").WithName("Service"),
-		Scheme: mgr.GetScheme(),
-	}
-	if err = serviceReconciler.SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Service")
-		os.Exit(1)
+		Client:        k8sClient,
+		ServiceReader: k8sClient,
+		ServiceWriter: k8sClient,
+		Cache:         cache,
+		Log:           ctrl.Log.WithName("authorino").WithName("controller").WithName("Service"),
+		Scheme:        mgr.GetScheme(),
 	}
 
-	// sets up secret reconciler
-	if err = (&controllers.SecretReconciler{
-		Client:            mgr.GetClient(),
+	secretReconciler := &controllers.SecretReconciler{
+		Client:            k8sClient,
 		Log:               ctrl.Log.WithName("authorino").WithName("controller").WithName("Secret"),
 		Scheme:            mgr.GetScheme(),
 		SecretLabel:       authorinoWatchedSecretLabel,
 		ServiceReconciler: serviceReconciler,
-	}).SetupWithManager(mgr); err != nil {
+		ServiceReader:     k8sClient,
+	}
+
+	if setupFromFilesDir != "" {
+		serviceLoader := service.NewServiceFromFileLoader(setupFromFilesDir, watchNamespace)
+
+		serviceReconciler.ServiceReader = serviceLoader
+		serviceReconciler.ServiceWriter = serviceLoader
+		secretReconciler.ServiceReader = serviceLoader
+
+		// load services to the cache ("reconcile") from files
+		go func() {
+			if err := serviceLoader.Load(mgr, serviceReconciler); err != nil {
+				panic(err)
+			}
+		}()
+	} else {
+		if err = serviceReconciler.SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "Service")
+			os.Exit(1)
+		}
+	}
+
+	if err = secretReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Secret")
 		os.Exit(1)
 	}
@@ -128,35 +151,41 @@ func main() {
 
 	setupLog.Info("Starting manager")
 
-	go func() {
+	startManager := func() {
 		if err := mgr.Start(signalHandler); err != nil {
 			setupLog.Error(err, "problem running manager")
 			os.Exit(1)
 		}
-	}()
-
-	// status update manager
-	managerOptions.LeaderElection = enableLeaderElection
-	managerOptions.LeaderElectionID = "cb88a58a.authorino.3scale.net"
-	managerOptions.MetricsBindAddress = "0"
-	statusUpdateManager, err := ctrl.NewManager(ctrl.GetConfigOrDie(), managerOptions)
-	if err != nil {
-		setupLog.Error(err, "unable to create status update manager")
-		os.Exit(1)
 	}
 
-	// sets up service status update controller
-	if err = (&controllers.ServiceStatusUpdater{
-		Client: statusUpdateManager.GetClient(),
-	}).SetupWithManager(statusUpdateManager); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "ServiceStatusUpdate")
-	}
+	if setupFromFilesDir == "" {
+		go startManager()
 
-	setupLog.Info("Starting status update manager")
+		// status update manager
+		managerOptions.LeaderElection = enableLeaderElection
+		managerOptions.LeaderElectionID = "cb88a58a.authorino.3scale.net"
+		managerOptions.MetricsBindAddress = "0"
+		statusUpdateManager, err := ctrl.NewManager(ctrl.GetConfigOrDie(), managerOptions)
+		if err != nil {
+			setupLog.Error(err, "unable to create status update manager")
+			os.Exit(1)
+		}
 
-	if err := statusUpdateManager.Start(signalHandler); err != nil {
-		setupLog.Error(err, "problem running status update manager")
-		os.Exit(1)
+		// sets up service status update controller
+		if err = (&controllers.ServiceStatusUpdater{
+			Client: statusUpdateManager.GetClient(),
+		}).SetupWithManager(statusUpdateManager); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "ServiceStatusUpdate")
+		}
+
+		setupLog.Info("Starting status update manager")
+
+		if err := statusUpdateManager.Start(signalHandler); err != nil {
+			setupLog.Error(err, "problem running status update manager")
+			os.Exit(1)
+		}
+	} else {
+		startManager()
 	}
 }
 
