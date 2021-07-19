@@ -9,7 +9,6 @@ resources:
 - leader_election_role.yaml
 - leader_election_role_binding.yaml
 - auth_proxy_service.yaml
-- certmanager
 #- webhook
 #- prometheus
 #- scorecard
@@ -26,7 +25,6 @@ commonLabels:
 
 patchesStrategicMerge:
 - patches/manager_auth_proxy_patch.yaml
-- patches/oidc_server_cert_patch.yaml
 #- patches/manager_webhook_patch.yaml
 #- patches/webhookcainjection_patch.yaml
 
@@ -38,19 +36,3 @@ images:
 replicas:
 - count: 1
   name: authorino-controller-manager
-
-vars:
-- fieldref:
-    fieldPath: metadata.namespace
-  name: AUTHORINO_NAMESPACE
-  objref:
-    apiVersion: v1
-    kind: Service
-    name: authorization
-- fieldref:
-    fieldPath: metadata.name
-  name: OIDC_SERVICE_NAME
-  objref:
-    apiVersion: v1
-    kind: Service
-    name: oidc

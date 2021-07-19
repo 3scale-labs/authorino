@@ -9,6 +9,6 @@ spec:
     app: authorino
     control-plane: controller-manager
   ports:
-    - name: https
+    - name: http
       port: 8083
       protocol: TCP

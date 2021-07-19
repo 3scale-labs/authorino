@@ -8,8 +8,8 @@ metadata:
   namespace: system
 spec:
   dnsNames:
-  - $(OIDC_SERVICE_NAME).$(AUTHORINO_NAMESPACE).svc
-  - $(OIDC_SERVICE_NAME).$(AUTHORINO_NAMESPACE).svc.cluster.local
+  - authorino-oidc.$(AUTHORINO_NAMESPACE).svc
+  - authorino-oidc.$(AUTHORINO_NAMESPACE).svc.cluster.local
   issuerRef:
     kind: Issuer
     name: ca-issuer

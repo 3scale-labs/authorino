@@ -204,10 +204,26 @@ func startOIDCServer(serviceCache cache.Cache) {
 			Cache: serviceCache,
 		})
 
-		logger.Info("starting oidc service", "port", oidcHTTPPort)
+		var fileStatErr error
+
+		tlsCertFile := oidcCAPath + "/certs/tls.crt"
+		_, fileStatErr = os.Stat(tlsCertFile)
+		tlsEnabled := fileStatErr == nil
+
+		tlsKeyFile := oidcCAPath + "/private/tls.key"
+		_, fileStatErr = os.Stat(tlsKeyFile)
+		tlsEnabled = tlsEnabled && fileStatErr == nil
+
+		logger.Info("starting oidc service", "port", oidcHTTPPort, "tls", tlsEnabled)
 
 		go func() {
-			if err := http.ServeTLS(lis, nil, oidcCAPath+"/certs/tls.crt", oidcCAPath+"/private/tls.key"); err != nil {
+			var err error
+			if tlsEnabled {
+				err = http.ServeTLS(lis, nil, tlsCertFile, tlsKeyFile)
+			} else {
+				err = http.Serve(lis, nil)
+			}
+			if err != nil {
 				logger.Error(err, "failed to start oidc service")
 				os.Exit(1)
 			}

@@ -47,16 +47,30 @@ install: manifests kustomize
 uninstall: manifests kustomize
 	$(KUSTOMIZE) build install | kubectl delete -f -
 
-# Install CertManager to the Kubernetes cluster
-.PHONY: cert-manager
-cert-manager:
-	kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.4.0/cert-manager.yaml
-	kubectl delete mutatingwebhookconfiguration.admissionregistration.k8s.io/cert-manager-webhook
-	kubectl delete validatingwebhookconfigurations.admissionregistration.k8s.io/cert-manager-webhook
-	kubectl -n cert-manager wait --timeout=300s --for=condition=Available deployments --all
+# Requests TLS certificates for services if cert-manager.io is installed, the secret is not already present and TLS is enabled
+.PHONY: certs
+TLS_CERT_SECRET_CHECK = $(shell kubectl -n $(AUTHORINO_NAMESPACE) get secret/authorino-oidc-server-cert 2>/dev/null)
+CERT_MANAGER_CHECK = $(shell kubectl get crds/issuers.cert-manager.io 2>/dev/null)
+certs:
+ifeq (,$(findstring -notls,$(AUTHORINO_DEPLOYMENT)))
+ifeq (,$(TLS_CERT_SECRET_CHECK))
+ifneq (, $(CERT_MANAGER_CHECK))
+	cd deploy/base/certmanager && $(KUSTOMIZE) edit set namespace $(AUTHORINO_NAMESPACE)
+	$(KUSTOMIZE) build deploy/base/certmanager | kubectl -n $(AUTHORINO_NAMESPACE) apply -f -
+	cd deploy/base/certmanager && $(KUSTOMIZE) edit set namespace authorino
+else
+	echo "cert-manager not installed."
+endif
+else
+	echo "tls cert secret found."
+endif
+else
+	echo "tls disabled."
+endif
 
 # Deploy controller in the configured Kubernetes cluster in ~/.kube/config
 deploy: manifests kustomize
+	$(MAKE) certs AUTHORINO_NAMESPACE=$(AUTHORINO_NAMESPACE) AUTHORINO_DEPLOYMENT=$(AUTHORINO_DEPLOYMENT)
 	cd deploy/base && $(KUSTOMIZE) edit set image authorino=$(AUTHORINO_IMAGE) && $(KUSTOMIZE) edit set namespace $(AUTHORINO_NAMESPACE) && $(KUSTOMIZE) edit set replicas authorino-controller-manager=$(AUTHORINO_REPLICAS)
 	cd deploy/overlays/$(AUTHORINO_DEPLOYMENT) && $(KUSTOMIZE) edit set namespace $(AUTHORINO_NAMESPACE)
 	$(KUSTOMIZE) build deploy/overlays/$(AUTHORINO_DEPLOYMENT) | kubectl -n $(AUTHORINO_NAMESPACE) apply -f -
@@ -173,6 +187,16 @@ ifneq (, $(DEPLOY_DEX))
 	kubectl -n $(NAMESPACE) apply -f examples/dex/dex-deploy.yaml
 endif
 
+# Install CertManager to the Kubernetes cluster
+.PHONY: cert-manager
+cert-manager:
+ifeq (,$(findstring -notls,$(AUTHORINO_DEPLOYMENT)))
+	kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.4.0/cert-manager.yaml
+	kubectl delete mutatingwebhookconfiguration.admissionregistration.k8s.io/cert-manager-webhook
+	kubectl delete validatingwebhookconfigurations.admissionregistration.k8s.io/cert-manager-webhook
+	kubectl -n cert-manager wait --timeout=300s --for=condition=Available deployments --all
+endif
+
 # Targets with the 'local-' prefix, for trying Authorino in a local cluster spawned with Kind
 
 KIND_CLUSTER_NAME ?= authorino
@@ -196,9 +220,8 @@ endif
 local-push: kind
 	kind load docker-image $(AUTHORINO_IMAGE) --name $(KIND_CLUSTER_NAME)
 
-# Builds the image, pushes to the local cluster and deployes Authorino.
-# Sets the imagePullPolicy to 'IfNotPresent' so it doesn't try to pull the image again (just pushed into the server registry)
-.PHONY: deploy
+# Deploys Authorino and sets imagePullPolicy to 'IfNotPresent' (so it doesn't try to pull the image which may have just been pushed into the server registry)
+.PHONY: local-deploy
 local-deploy: deploy
 	kubectl -n $(AUTHORINO_NAMESPACE) patch deployment authorino-controller-manager -p '{"spec": {"template": {"spec":{"containers":[{"name": "manager", "imagePullPolicy":"IfNotPresent"}]}}}}'
 

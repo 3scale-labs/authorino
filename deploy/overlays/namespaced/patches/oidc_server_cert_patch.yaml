@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: controller-manager
+  namespace: system
+spec:
+  template:
+    spec:
+      containers:
+      - name: manager
+        volumeMounts:
+        - name: oidc-cert
+          mountPath: /etc/ssl/certs/tls.crt
+          subPath: tls.crt
+          readOnly: true
+        - name: oidc-cert
+          mountPath: /etc/ssl/private/tls.key
+          subPath: tls.key
+          readOnly: true
+      volumes:
+      - name: oidc-cert
+        secret:
+          defaultMode: 420
+          secretName: authorino-oidc-server-cert

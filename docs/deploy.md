@@ -245,11 +245,39 @@ To deploy namespaced Authorino instances (`Deployment`, `Service` and `RoleBindi
 make deploy
 ```
 
+or
+
+```sh
+make deploy AUTHORINO_DEPLOYMENT=namespaced
+```
+
 To deploy cluster-wide Authorino instances (`Deployment`, `Service` and `ClusterRoleBinding`s), run:
 
 ```sh
 make deploy AUTHORINO_DEPLOYMENT=cluster-wide
 ```
+
+##### TLS
+
+By default, all deployments enable TLS on the endpoints served by Authorino (e.g. wristband/OIDC HTTP server).
+
+If [cert-manager](https://cert-manager.io) CRDs are installed in the cluster and the `Secret`s required to enable TLS are not yet available in the namespace, `make deploy` will request TLS certificates to be issued by creating `Issuer` and `Certificate` cert-manager custom resources.
+
+If you do not want to use cert-manager to manage Authorino TLS certificates, make sure to create the corresponding required `Secret` resources beforehand.
+
+To completely disable TLS, append `-notls` to the value of the `AUTHORINO_DEPLOYMENT` parameter. In this case, neither cert-manager nor any TLS secrets are required, and Authorino will serve endpoints via `http` instead of `https`. E.g.:
+
+```sh
+make deploy AUTHORINO_DEPLOYMENT=namespaced-notls
+```
+
+or
+
+```sh
+make deploy AUTHORINO_DEPLOYMENT=cluster-wide-notls
+```
+
+##### Changing the image
 
 By default, the commands above assume `quay.io/3scale/authorino:latest` to be the Authorino image tag to deploy. You can change that by setting the `AUTHORINO_IMAGE` parameter.
 
@@ -258,6 +286,8 @@ make deploy AUTHORINO_IMAGE=authorino:my-custom-image
 ```
 
 > **NOTE:** In case you are working with a local Kubernetes cluster started with Kind, have built and pushed a local image to the server registry, remind of Kubernetes default pull policy, which establishes that the image tag `:latest` causes the policy `Always` to be enforced. In such case, you may want to change the policy to `IfNotPresent`. See [Kubernetes `imagePullPolicy`](https://kubernetes.io/docs/concepts/containers/images/#updating-images) for more information.
+
+##### Number of replicas
 
 You can tweak with the number of replicas of the Authorino `Deployment`, by setting the `AUTHORINO_REPLICAS` parameter. E.g.:
 

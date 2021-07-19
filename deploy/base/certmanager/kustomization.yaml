@@ -1,7 +1,32 @@
+# Use this if you want TLS certificates to be issued for the Authorino services. It requires https://cert-manager.io/.
+# On the other hand, if you prefer managing the certificates by yourself, make sure to create the Authorino's required TLS secrets beforehand.
+# `make deploy` will try to detect whether this should be used and do so automatically if this is the case.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
 resources:
 - issuer.yaml
 - oidc-server-cert.yaml
 # - webhook-server-cert.yaml
 
+# Adds namespace to all resources.
+namespace: authorino
+
+# Value of this field is prepended to the names of all resources. E.g. a deployment named "controller" becomes "authorino-controller".
+namePrefix: authorino-
+
+# Labels to add to all resources and selectors.
+commonLabels:
+  app: authorino
+
 configurations:
 - kustomizeconfig.yaml
+
+vars:
+- fieldref:
+    fieldPath: metadata.namespace
+  name: AUTHORINO_NAMESPACE
+  objref:
+    apiVersion: cert-manager.io/v1
+    kind: Issuer
+    name: selfsigned-issuer
